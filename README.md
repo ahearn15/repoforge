@@ -31,12 +31,12 @@ pip install .
 The package provides a CLI that allows you to generate a prompt directly from the terminal.
 
 ```bash
-python -m repo_prompt_generator <repo_directory> [<system_message>] [<user_instructions>]
+python -m repo-forge <repo_directory> [<system_message>] [<user_instructions>]
 ```
 For example:
 
 ```bash
-python -m repo_prompt_generator /path/to/your/repo "System message goes here" "User instructions go here"
+python -m repo-forge /path/to/your/repo "System message goes here" "User instructions go here"
 ```
 
 ### As a Python Module
