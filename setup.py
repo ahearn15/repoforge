@@ -18,7 +18,7 @@ setup(
     python_requires=">=3.6",
     entry_points={
         'console_scripts': [
-            'repo-prompt=prompt_generator:generate_prompt',  
+            'repoforge=prompt_generator:generate_prompt',  
         ],
     },
 )
