@@ -1,4 +1,4 @@
-# RepoForge
+# repo-forge
 
 RepoForge is a Python tool that scans a repository directory, summarizes its contents, and generates a formatted prompt with XML tags. This prompt includes a visual directory tree and summaries of text files, making it ideal for integrations with other tools or for creating structured inputs for language models.
 
