@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="repo-forge",       # Package name on PyPI
+    name="repoforge",       # Package name on PyPI
     version="0.1.0",
     author="Adam Hearn",
     author_email="ahearn15@gmail.com",
