@@ -21,8 +21,8 @@ pip install repo-forge
 Alternatively, clone the repository from GitHub and install it locally:
 
 ```bash
-git clone https://github.com/ahearn15/repo-forge.git
-cd repo-forge
+git clone https://github.com/ahearn15/repoforge.git
+cd repoforge
 pip install .
 ```
 
@@ -31,19 +31,19 @@ pip install .
 The package provides a CLI that allows you to generate a prompt directly from the terminal.
 
 ```bash
-python -m repo-forge <repo_directory> [<system_message>] [<user_instructions>]
+python -m repoforge <repo_directory> [<system_message>] [<user_instructions>]
 ```
 For example:
 
 ```bash
-python -m repo-forge /path/to/your/repo "System message goes here" "User instructions go here"
+python -m repoforge /path/to/your/repo "System message goes here" "User instructions go here"
 ```
 
 ### As a Python Module
 You can also import and use the functionality directly in your Python code:
 
 ```python
-from repo-forge import generate_prompt
+from repoforge import generate_prompt
 
 # Define the repository directory and optional messages
 repo_dir = "/path/to/your/repo"
