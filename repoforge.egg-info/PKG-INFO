@@ -1,3 +1,25 @@
+Metadata-Version: 2.2
+Name: repoforge
+Version: 0.1.0
+Summary: Generate a formatted LLM prompt from a repository directory.
+Home-page: https://github.com/ahearn15/repoforge/
+Author: Adam Hearn
+Author-email: ahearn15@gmail.com
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.6
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: requires-python
+Dynamic: summary
+
 # RepoForge
 
 RepoForge is a Python tool that scans a repository directory, summarizes its contents, and generates a formatted prompt with XML tags. This prompt includes a visual directory tree and summaries of text files, making it ideal for integrations with other tools or for creating structured inputs for language models.
@@ -15,7 +37,7 @@ RepoForge is a Python tool that scans a repository directory, summarizes its con
 Repo Prompt Generator can be installed via [PyPI](https://pypi.org/) once published:
 
 ```bash
-pip install repoforge
+pip install repo-forge
 ```
 
 Alternatively, clone the repository from GitHub and install it locally:

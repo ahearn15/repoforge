@@ -1,13 +1,13 @@
 import os
 import textwrap
 
-# Configuration constants
-IGNORED_DIRS = {'.git', '__pycache__', '.idea', '.vscode'}
-IGNORED_EXTENSIONS = {'.pyc', '.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip'}
-MAX_FILE_SIZE_BYTES = 100_000  # Skip summarizing files larger than this
-MAX_SUMMARY_LINES = 500         # Maximum lines of content to include
+# Default configuration constants
+DEFAULT_IGNORED_DIRS = {'.git', '__pycache__', '.idea', '.vscode'}
+DEFAULT_IGNORED_EXTENSIONS = {'.pyc', '.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip'}
+DEFAULT_MAX_FILE_SIZE_BYTES = 100_000  # Skip summarizing files larger than this
+DEFAULT_MAX_SUMMARY_LINES = 500         # Maximum lines of content to include
 
-def summarize_text_file(filepath, max_lines=MAX_SUMMARY_LINES):
+def summarize_text_file(filepath, max_lines=DEFAULT_MAX_SUMMARY_LINES):
     """
     Return a truncated summary (the first few lines) of a text file.
     """
@@ -24,7 +24,7 @@ def summarize_text_file(filepath, max_lines=MAX_SUMMARY_LINES):
     
     return "\n".join(summary_lines)
 
-def create_directory_tree(root_dir):
+def create_directory_tree(root_dir, ignored_dirs=DEFAULT_IGNORED_DIRS):
     """
     Create a plain-text directory tree outline for quick reference.
     """
@@ -32,7 +32,7 @@ def create_directory_tree(root_dir):
 
     def walk_directory(path, prefix=""):
         entries = sorted(os.listdir(path))
-        entries = [e for e in entries if e not in IGNORED_DIRS]
+        entries = [e for e in entries if e not in ignored_dirs]
         
         for i, entry in enumerate(entries):
             full_path = os.path.join(path, entry)
@@ -42,10 +42,7 @@ def create_directory_tree(root_dir):
                 new_prefix = prefix + ("    " if i == len(entries) - 1 else "│   ")
                 walk_directory(full_path, new_prefix)
             else:
-                # Skip files with ignored extensions
-                _, ext = os.path.splitext(entry)
-                if ext.lower() in IGNORED_EXTENSIONS:
-                    continue
+                # We do not filter file extensions in the directory tree view.
                 tree_lines.append(prefix + connector + entry)
     
     # Start the tree with the root directory's basename
@@ -55,7 +52,13 @@ def create_directory_tree(root_dir):
 
     return "\n".join(tree_lines)
 
-def create_repo_summary(root_dir):
+def create_repo_summary(
+    root_dir,
+    ignored_dirs=DEFAULT_IGNORED_DIRS,
+    ignored_extensions=DEFAULT_IGNORED_EXTENSIONS,
+    max_file_size_bytes=DEFAULT_MAX_FILE_SIZE_BYTES,
+    max_summary_lines=DEFAULT_MAX_SUMMARY_LINES
+):
     """
     Walk the repo, build a data structure with directory/file info and summaries.
     Returns a list of entries: [{ 'directory': <relative_path>, 'files': [...] }, ...].
@@ -64,7 +67,7 @@ def create_repo_summary(root_dir):
 
     for current_path, dirs, files in os.walk(root_dir):
         # Filter out ignored directories
-        dirs[:] = [d for d in dirs if d not in IGNORED_DIRS]
+        dirs[:] = [d for d in dirs if d not in ignored_dirs]
 
         rel_dir = os.path.relpath(current_path, root_dir)
         if rel_dir == '.':
@@ -73,20 +76,20 @@ def create_repo_summary(root_dir):
         file_summaries = []
         for filename in files:
             _, ext = os.path.splitext(filename)
-            if ext.lower() in IGNORED_EXTENSIONS:
+            if ext.lower() in ignored_extensions:
                 continue
 
             full_path = os.path.join(current_path, filename)
             size_bytes = os.path.getsize(full_path)
 
-            if size_bytes > MAX_FILE_SIZE_BYTES:
+            if size_bytes > max_file_size_bytes:
                 file_summaries.append({
                     'name': filename,
                     'summary': f"File size ({size_bytes} bytes) exceeds limit; skipping content."
                 })
                 continue
 
-            file_content_summary = summarize_text_file(full_path, max_lines=MAX_SUMMARY_LINES)
+            file_content_summary = summarize_text_file(full_path, max_lines=max_summary_lines)
             file_summaries.append({
                 'name': filename,
                 'summary': file_content_summary
@@ -136,7 +139,15 @@ def format_prompt_xml(repo_summary, directory_tree, system_message="", user_inst
 
     return "\n".join(prompt_parts)
 
-def generate_prompt(repo_dir, system_message="", user_instructions=""):
+def generate_prompt(
+    repo_dir,
+    system_message="",
+    user_instructions="",
+    ignored_dirs=DEFAULT_IGNORED_DIRS,
+    ignored_extensions=DEFAULT_IGNORED_EXTENSIONS,
+    max_file_size_bytes=DEFAULT_MAX_FILE_SIZE_BYTES,
+    max_summary_lines=DEFAULT_MAX_SUMMARY_LINES
+):
     """
     Generate a formatted prompt from a repository directory.
     
@@ -144,6 +155,10 @@ def generate_prompt(repo_dir, system_message="", user_instructions=""):
       repo_dir (str): Path to the repository directory.
       system_message (str): Optional system message.
       user_instructions (str): Optional user instructions.
+      ignored_dirs (set): Set of directory names to ignore.
+      ignored_extensions (set): Set of file extensions to ignore.
+      max_file_size_bytes (int): Maximum file size for summarizing.
+      max_summary_lines (int): Maximum lines to include in the summary.
     
     Returns:
       str: The formatted prompt.
@@ -154,8 +169,14 @@ def generate_prompt(repo_dir, system_message="", user_instructions=""):
     if not os.path.isdir(repo_dir):
         raise ValueError(f"Directory {repo_dir} does not exist.")
     
-    directory_tree = create_directory_tree(repo_dir)
-    repo_summary = create_repo_summary(repo_dir)
+    directory_tree = create_directory_tree(repo_dir, ignored_dirs=ignored_dirs)
+    repo_summary = create_repo_summary(
+        repo_dir,
+        ignored_dirs=ignored_dirs,
+        ignored_extensions=ignored_extensions,
+        max_file_size_bytes=max_file_size_bytes,
+        max_summary_lines=max_summary_lines
+    )
     return format_prompt_xml(
         repo_summary=repo_summary,
         directory_tree=directory_tree,

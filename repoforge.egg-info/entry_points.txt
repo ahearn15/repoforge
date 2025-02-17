@@ -1,0 +1,2 @@
+[console_scripts]
+repoforge = prompt_generator:generate_prompt
