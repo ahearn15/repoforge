@@ -4,7 +4,7 @@ import textwrap
 # Default configuration constants
 DEFAULT_IGNORED_DIRS = {'.git', '__pycache__', '.idea', '.vscode'}
 DEFAULT_IGNORED_EXTENSIONS = {'.pyc', '.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip'}
-DEFAULT_MAX_FILE_SIZE_BYTES = 100_000  # Skip summarizing files larger than this
+DEFAULT_MAX_FILE_SIZE_BYTES = 1e20  # Skip summarizing files larger than this
 DEFAULT_MAX_SUMMARY_LINES = 500         # Maximum lines of content to include
 
 def summarize_text_file(filepath, max_lines=DEFAULT_MAX_SUMMARY_LINES):
@@ -143,10 +143,10 @@ def generate_prompt(
     repo_dir,
     system_message="",
     user_instructions="",
+    max_file_size_bytes=DEFAULT_MAX_FILE_SIZE_BYTES,
+    max_lines=DEFAULT_MAX_SUMMARY_LINES,
     ignored_dirs=DEFAULT_IGNORED_DIRS,
     ignored_extensions=DEFAULT_IGNORED_EXTENSIONS,
-    max_file_size_bytes=DEFAULT_MAX_FILE_SIZE_BYTES,
-    max_summary_lines=DEFAULT_MAX_SUMMARY_LINES
 ):
     """
     Generate a formatted prompt from a repository directory.
@@ -175,7 +175,7 @@ def generate_prompt(
         ignored_dirs=ignored_dirs,
         ignored_extensions=ignored_extensions,
         max_file_size_bytes=max_file_size_bytes,
-        max_summary_lines=max_summary_lines
+        max_summary_lines=max_lines
     )
     return format_prompt_xml(
         repo_summary=repo_summary,
