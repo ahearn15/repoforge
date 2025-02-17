@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="repoforge",       # Package name on PyPI
-    version="0.1.0",
+    version="0.1.1",
     author="Adam Hearn",
     author_email="ahearn15@gmail.com",
     description="Generate a formatted LLM prompt from a repository directory.",
