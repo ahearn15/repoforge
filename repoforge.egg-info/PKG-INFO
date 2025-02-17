@@ -1,6 +1,6 @@
 Metadata-Version: 2.2
 Name: repoforge
-Version: 0.1.2
+Version: 0.1.3
 Summary: Generate a formatted LLM prompt from a repository directory.
 Home-page: https://github.com/ahearn15/repoforge/
 Author: Adam Hearn

@@ -2,7 +2,7 @@ LICENSE
 README.md
 setup.py
 repoforge/__init__.py
-repoforge/prompt_generator.py
+repoforge/repoforge.py
 repoforge.egg-info/PKG-INFO
 repoforge.egg-info/SOURCES.txt
 repoforge.egg-info/dependency_links.txt
