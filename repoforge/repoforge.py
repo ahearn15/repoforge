@@ -3,7 +3,7 @@ import textwrap
 
 # Default configuration constants
 DEFAULT_IGNORED_DIRS = {'.git', '__pycache__', '.idea', '.vscode'}
-DEFAULT_IGNORED_EXTENSIONS = {'.pyc', '.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip'}
+DEFAULT_IGNORED_EXTENSIONS = {'.pyc', '.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip', '.ipynb', '.env'}
 DEFAULT_MAX_FILE_SIZE_BYTES = 1e20  # Skip summarizing files larger than this
 DEFAULT_MAX_SUMMARY_LINES = 500         # Maximum lines of content to include
 
