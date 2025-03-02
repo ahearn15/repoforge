@@ -1,203 +1,359 @@
 import os
 import textwrap
+import tiktoken
+from typing import Set, List, Dict, Optional, Union, Any
 
-# Default configuration constants
-DEFAULT_IGNORED_DIRS = {'.git', '__pycache__', '.idea', '.vscode'}
-DEFAULT_IGNORED_EXTENSIONS = {'.pyc', '.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip', '.ipynb', '.env'}
-DEFAULT_MAX_FILE_SIZE_BYTES = 1e20  # Skip summarizing files larger than this
-DEFAULT_MAX_SUMMARY_LINES = 500         # Maximum lines of content to include
-
-def summarize_text_file(filepath, max_lines=DEFAULT_MAX_SUMMARY_LINES):
+class RepoForge:
     """
-    Return a truncated summary (the first few lines) of a text file.
+    A class for generating formatted prompts from repository directories.
     """
-    summary_lines = []
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            for i, line in enumerate(f):
-                if i >= max_lines:
-                    summary_lines.append("... [Truncated]")
-                    break
-                summary_lines.append(line.rstrip('\n'))
-    except Exception as e:
-        summary_lines = [f"Error reading file: {e}"]
+    # Default configuration constants
+    DEFAULT_IGNORED_DIRS = {'.git', '__pycache__', '.idea', '.vscode'}
+    DEFAULT_IGNORED_EXTENSIONS = {'.pyc', '.png', '.jpg', '.jpeg', '.gif', '.pdf', '.zip', '.env'}
+    DEFAULT_MAX_FILE_SIZE_BYTES = 1_000_000_000  # Skip summarizing files larger than this
+    DEFAULT_TOKEN_LIMIT = 128_000  # Maximum tokens for the prompt
     
-    return "\n".join(summary_lines)
-
-def create_directory_tree(root_dir, ignored_dirs=DEFAULT_IGNORED_DIRS):
-    """
-    Create a plain-text directory tree outline for quick reference.
-    """
-    tree_lines = []
-
-    def walk_directory(path, prefix=""):
-        entries = sorted(os.listdir(path))
-        entries = [e for e in entries if e not in ignored_dirs]
+    def __init__(
+        self,
+        ignored_dirs: Optional[Set[str]] = None,
+        ignored_extensions: Optional[Set[str]] = None,
+        max_file_size_bytes: float = DEFAULT_MAX_FILE_SIZE_BYTES,
+        max_chars: Optional[int] = 1_000_000_000,
+        ignore_max_chars_for: Optional[List[str]] = None,
+        model: str = "o1-pro"
+    ):
+        """
+        Initialize the RepoForge instance.
         
-        for i, entry in enumerate(entries):
-            full_path = os.path.join(path, entry)
-            connector = "└── " if i == len(entries) - 1 else "├── "
-            if os.path.isdir(full_path):
-                tree_lines.append(prefix + connector + entry + "/")
-                new_prefix = prefix + ("    " if i == len(entries) - 1 else "│   ")
-                walk_directory(full_path, new_prefix)
-            else:
-                # We do not filter file extensions in the directory tree view.
-                tree_lines.append(prefix + connector + entry)
-    
-    # Start the tree with the root directory's basename
-    root_basename = os.path.basename(os.path.normpath(root_dir)) or root_dir
-    tree_lines.append(root_basename + "/")
-    walk_directory(root_dir, prefix="")
+        Parameters:
+            ignored_dirs: Additional directories to ignore (combined with defaults)
+            ignored_extensions: Additional file extensions to ignore (combined with defaults)
+            max_file_size_bytes: Maximum file size for summarizing
+            max_chars: Maximum characters to include in the summary (None means no limit)
+            ignore_max_chars_for: List of file patterns or directory paths that should ignore the max_chars limit
+            model: The model to use for token counting
+        """
+        self.ignored_dirs = self.DEFAULT_IGNORED_DIRS.copy()
+        if ignored_dirs:
+            self.ignored_dirs.update(ignored_dirs)
+            
+        self.ignored_extensions = self.DEFAULT_IGNORED_EXTENSIONS.copy()
+        if ignored_extensions:
+            self.ignored_extensions.update(ignored_extensions)
+            
+        self.max_file_size_bytes = max_file_size_bytes
+        self.max_chars = max_chars
+        self.ignore_max_chars_for = ignore_max_chars_for or []
+        self.model = model
 
-    return "\n".join(tree_lines)
+    def summarize_text_file(self, filepath: str, max_chars: Optional[int] = None) -> str:
+        """
+        Return a truncated summary of a text file.
+        
+        Parameters:
+            filepath: Path to the file
+            max_chars: Maximum characters to include (None means no limit)
+            
+        Returns:
+            A string containing the file content, potentially truncated
+        """
+        # Check if this file should ignore the max_chars limit
+        # This can be because the file matches a pattern or is in a directory that should be ignored
+        normalized_path = os.path.normpath(filepath)
+        file_dir = os.path.dirname(normalized_path)
+        
+        should_ignore_limit = False
+        for pattern in self.ignore_max_chars_for:
+            # Check if the pattern is in the filepath (file pattern match)
+            if pattern in normalized_path:
+                should_ignore_limit = True
+                break
+            
+            # Check if the pattern is a directory and the file is in that directory
+            pattern_path = os.path.normpath(pattern)
+            if os.path.isdir(pattern_path) and file_dir.startswith(pattern_path):
+                should_ignore_limit = True
+                break
+            
+            # Also check if the pattern is a directory name that appears in the path
+            if os.path.basename(pattern) in file_dir.split(os.sep):
+                should_ignore_limit = True
+                break
+        
+        if should_ignore_limit:
+            max_chars = None
+            
+        summary_lines = []
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                content = f.read()
+                
+                if max_chars is not None and len(content) > max_chars:
+                    content = content[:max_chars] + "\n... [Truncated]"
+                
+                summary_lines = content.split('\n')
+                
+                # Special handling for CSV files (limit to fewer lines)
+                if filepath.endswith('.csv') and max_chars is not None:
+                    csv_max_chars = max_chars // 10
+                    csv_content = '\n'.join(summary_lines)
+                    if len(csv_content) > csv_max_chars:
+                        csv_content = csv_content[:csv_max_chars] + "\n... [Truncated]"
+                        summary_lines = csv_content.split('\n')
+                        
+        except Exception as e:
+            summary_lines = [f"Error reading file: {e}"]
+        
+        return "\n".join(summary_lines)
 
-def create_repo_summary(
-    root_dir,
-    ignored_dirs=DEFAULT_IGNORED_DIRS,
-    ignored_extensions=DEFAULT_IGNORED_EXTENSIONS,
-    max_file_size_bytes=DEFAULT_MAX_FILE_SIZE_BYTES,
-    max_summary_lines=DEFAULT_MAX_SUMMARY_LINES
-):
-    """
-    Walk the repo, build a data structure with directory/file info and summaries.
-    Returns a list of entries: [{ 'directory': <relative_path>, 'files': [...] }, ...].
-    """
-    repo_summary = []
+    def create_directory_tree(self, root_dir: str) -> str:
+        """
+        Create a plain-text directory tree outline for quick reference.
+        
+        Parameters:
+            root_dir: Path to the repository directory
+            
+        Returns:
+            A string containing the directory tree
+        """
+        tree_lines = []
 
-    for current_path, dirs, files in os.walk(root_dir):
-        # Filter out ignored directories
-        dirs[:] = [d for d in dirs if d not in ignored_dirs]
+        def walk_directory(path, prefix=""):
+            entries = sorted(os.listdir(path))
+            entries = [e for e in entries if e not in self.ignored_dirs]
+            
+            for i, entry in enumerate(entries):
+                full_path = os.path.join(path, entry)
+                connector = "└── " if i == len(entries) - 1 else "├── "
+                if os.path.isdir(full_path):
+                    tree_lines.append(prefix + connector + entry + "/")
+                    new_prefix = prefix + ("    " if i == len(entries) - 1 else "│   ")
+                    walk_directory(full_path, new_prefix)
+                else:
+                    # We do not filter file extensions in the directory tree view.
+                    tree_lines.append(prefix + connector + entry)
+        
+        # Start the tree with the root directory's basename
+        root_basename = os.path.basename(os.path.normpath(root_dir)) or root_dir
+        tree_lines.append(root_basename + "/")
+        walk_directory(root_dir, prefix="")
 
-        rel_dir = os.path.relpath(current_path, root_dir)
-        if rel_dir == '.':
-            rel_dir = ''  # top-level
+        return "\n".join(tree_lines)
 
-        file_summaries = []
-        for filename in files:
-            _, ext = os.path.splitext(filename)
-            if ext.lower() in ignored_extensions:
-                continue
+    def create_repo_summary(self, root_dir: str) -> List[Dict[str, Any]]:
+        """
+        Walk the repo, build a data structure with directory/file info and summaries.
+        
+        Parameters:
+            root_dir: Path to the repository directory
+            
+        Returns:
+            A list of entries: [{ 'directory': <relative_path>, 'files': [...] }, ...]
+        """
+        repo_summary = []
 
-            full_path = os.path.join(current_path, filename)
-            size_bytes = os.path.getsize(full_path)
+        for current_path, dirs, files in os.walk(root_dir):
+            # Filter out ignored directories
+            dirs[:] = [d for d in dirs if d not in self.ignored_dirs]
 
-            if size_bytes > max_file_size_bytes:
+            rel_dir = os.path.relpath(current_path, root_dir)
+            if rel_dir == '.':
+                rel_dir = ''  # top-level
+
+            file_summaries = []
+            for filename in files:
+                _, ext = os.path.splitext(filename)
+                if ext.lower() in self.ignored_extensions or filename.startswith('.'):
+                    continue
+
+                full_path = os.path.join(current_path, filename)
+                size_bytes = os.path.getsize(full_path)
+
+                if size_bytes > self.max_file_size_bytes:
+                    file_summaries.append({
+                        'name': filename,
+                        'summary': f"File size ({size_bytes} bytes) exceeds limit; skipping content."
+                    })
+                    continue
+
+                file_content_summary = self.summarize_text_file(full_path, max_chars=self.max_chars)
                 file_summaries.append({
                     'name': filename,
-                    'summary': f"File size ({size_bytes} bytes) exceeds limit; skipping content."
+                    'summary': file_content_summary
                 })
-                continue
 
-            file_content_summary = summarize_text_file(full_path, max_lines=max_summary_lines)
-            file_summaries.append({
-                'name': filename,
-                'summary': file_content_summary
-            })
+            if file_summaries:
+                repo_summary.append({
+                    'directory': rel_dir,
+                    'files': file_summaries
+                })
 
-        if file_summaries:
-            repo_summary.append({
-                'directory': rel_dir,
-                'files': file_summaries
-            })
+        return repo_summary
 
-    return repo_summary
+    def format_prompt_xml(
+        self, 
+        repo_summary: List[Dict[str, Any]], 
+        directory_tree: str, 
+        system_message: str = "", 
+        user_instructions: str = ""
+    ) -> str:
+        """
+        Convert the repository summary and directory tree into a textual prompt with XML tags.
+        
+        Parameters:
+            repo_summary: Repository summary from create_repo_summary
+            directory_tree: Directory tree from create_directory_tree
+            system_message: Optional system message
+            user_instructions: Optional user instructions
+            
+        Returns:
+            A formatted prompt string
+        """
+        prompt_parts = []
 
-def format_prompt_xml(repo_summary, directory_tree, system_message="", user_instructions=""):
-    """
-    Convert the repository summary and directory tree into a textual prompt with XML tags.
-    """
-    prompt_parts = []
-    
-    # Add the directory tree at the top
-    prompt_parts.append("DIRECTORY TREE:")
-    prompt_parts.append(directory_tree)
-    prompt_parts.append("")
+        # Embed system and user instructions in XML tags
+        prompt_parts.append("<SYSTEM_MESSAGE>")
+        prompt_parts.append(system_message.strip() if system_message else "No system message provided.")
+        prompt_parts.append("</SYSTEM_MESSAGE>\n")
 
-    # Embed system and user instructions in XML tags
-    prompt_parts.append("<SYSTEM_MESSAGE>")
-    prompt_parts.append(system_message.strip() if system_message else "No system message provided.")
-    prompt_parts.append("</SYSTEM_MESSAGE>\n")
+        prompt_parts.append("<USER_INSTRUCTIONS>")
+        prompt_parts.append(user_instructions.strip() if user_instructions else "No user instructions provided.")
+        prompt_parts.append("</USER_INSTRUCTIONS>\n")
 
-    prompt_parts.append("<USER_INSTRUCTIONS>")
-    prompt_parts.append(user_instructions.strip() if user_instructions else "No user instructions provided.")
-    prompt_parts.append("</USER_INSTRUCTIONS>\n")
+        # Add the directory tree at the top
+        prompt_parts.append("<DIRECTORY_TREE>")
+        prompt_parts.append(directory_tree)
+        prompt_parts.append("</DIRECTORY_TREE>\n")
 
-    prompt_parts.append("<REPOSITORY_CONTENTS>")
-    for entry in repo_summary:
-        dir_path = entry['directory'] or "(top-level)"
-        prompt_parts.append(f'  <directory name="{dir_path}">')
-        for file_info in entry['files']:
-            prompt_parts.append(f'    <file name="{file_info["name"]}">')
-            prompt_parts.append("      <content>")
-            for line in file_info["summary"].split("\n"):
-                prompt_parts.append("         " + line)
-            prompt_parts.append("      </content>")
-            prompt_parts.append("    </file>")
-        prompt_parts.append("  </directory>")
-    prompt_parts.append("</REPOSITORY_CONTENTS>")
+        prompt_parts.append("<REPOSITORY_CONTENTS>")
+        for entry in repo_summary:
+            dir_path = entry['directory'] or "(top-level)"
+            prompt_parts.append(f'  <directory name="{dir_path}">')
+            for file_info in entry['files']:
+                prompt_parts.append(f'    <file name="{file_info["name"]}">')
+                prompt_parts.append("      <content>")
+                for line in file_info["summary"].split("\n"):
+                    prompt_parts.append("         " + line)
+                prompt_parts.append("      </content>")
+                prompt_parts.append("    </file>")
+            prompt_parts.append("  </directory>")
+        prompt_parts.append("</REPOSITORY_CONTENTS>")
 
-    return "\n".join(prompt_parts)
+        return "\n".join(prompt_parts)
 
-def generate_prompt(
-    repo_dir,
-    system_message="",
-    user_instructions="",
-    max_file_size_bytes=DEFAULT_MAX_FILE_SIZE_BYTES,
-    max_lines=DEFAULT_MAX_SUMMARY_LINES,
-    ignored_dirs=DEFAULT_IGNORED_DIRS,
-    ignored_extensions=DEFAULT_IGNORED_EXTENSIONS,
-):
-    """
-    Generate a formatted prompt from a repository directory.
-    
-    Parameters:
-      repo_dir (str): Path to the repository directory.
-      system_message (str): Optional system message.
-      user_instructions (str): Optional user instructions.
-      ignored_dirs (set): Set of directory names to ignore.
-      ignored_extensions (set): Set of file extensions to ignore.
-      max_file_size_bytes (int): Maximum file size for summarizing.
-      max_summary_lines (int): Maximum lines to include in the summary.
-    
-    Returns:
-      str: The formatted prompt.
-    
-    Raises:
-      ValueError: If the provided directory does not exist.
-    """
-    if not os.path.isdir(repo_dir):
-        raise ValueError(f"Directory {repo_dir} does not exist.")
-    
-    directory_tree = create_directory_tree(repo_dir, ignored_dirs=ignored_dirs)
-    repo_summary = create_repo_summary(
-        repo_dir,
-        ignored_dirs=ignored_dirs,
-        ignored_extensions=ignored_extensions,
-        max_file_size_bytes=max_file_size_bytes,
-        max_summary_lines=max_lines
-    )
-    return format_prompt_xml(
-        repo_summary=repo_summary,
-        directory_tree=directory_tree,
-        system_message=system_message,
-        user_instructions=user_instructions
-    )
+    def count_tokens(self, text: str) -> int:
+        """
+        Count the number of tokens in a text string.
+        
+        Parameters:
+            text: The text to count tokens for
+            
+        Returns:
+            The number of tokens
+        """
+        encoding = tiktoken.encoding_for_model(self.model)
+        return len(encoding.encode(text))
+
+    def generate_prompt(
+        self,
+        repo_dir: str,
+        system_message: str = "",
+        user_instructions: str = ""
+    ) -> str:
+        """
+        Generate a formatted prompt from a repository directory.
+        
+        Parameters:
+            repo_dir: Path to the repository directory
+            system_message: Optional system message
+            user_instructions: Optional user instructions
+        
+        Returns:
+            The formatted prompt
+        
+        Raises:
+            ValueError: If the provided directory does not exist
+        """
+        if not os.path.isdir(repo_dir):
+            raise ValueError(f"Directory {repo_dir} does not exist.")
+        
+        directory_tree = self.create_directory_tree(repo_dir)
+        repo_summary = self.create_repo_summary(repo_dir)
+        formatted_prompt = self.format_prompt_xml(
+            repo_summary=repo_summary,
+            directory_tree=directory_tree,
+            system_message=system_message,
+            user_instructions=user_instructions
+        )
+        token_count = self.count_tokens(formatted_prompt)
+        # Recursively reduce max_chars if token count exceeds the limit
+        if token_count > self.DEFAULT_TOKEN_LIMIT and self.max_chars is not None:
+            # Calculate reduction factor based on how much we need to reduce
+            reduction_factor = self.DEFAULT_TOKEN_LIMIT / token_count
+            # Apply with a safety margin
+            new_max_chars = int(self.max_chars * reduction_factor * 0.9)
+            print(f"Token count too high ({token_count}). Reducing max_chars from {self.max_chars} to {new_max_chars}.")
+            
+            # Create a new instance with reduced max_chars
+            new_instance = RepoForge(
+                ignored_dirs=self.ignored_dirs - self.DEFAULT_IGNORED_DIRS,
+                ignored_extensions=self.ignored_extensions - self.DEFAULT_IGNORED_EXTENSIONS,
+                max_file_size_bytes=self.max_file_size_bytes,
+                max_chars=new_max_chars,
+                ignore_max_chars_for=self.ignore_max_chars_for,
+                model=self.model
+            )
+            
+            return new_instance.generate_prompt(
+                repo_dir,
+                system_message=system_message,
+                user_instructions=user_instructions
+            )
+            
+        print(f"Final token count: {token_count}")
+        return formatted_prompt
+
 
 # Optional: CLI entrypoint for manual testing
 if __name__ == "__main__":
     import sys
-    if len(sys.argv) < 2:
-        print(f"Usage: python {sys.argv[0]} <repo_directory> [<system_message>] [<user_instructions>]")
-        sys.exit(1)
-
-    repo_dir = sys.argv[1]
-    system_message = sys.argv[2] if len(sys.argv) > 2 else ""
-    user_instructions = sys.argv[3] if len(sys.argv) > 3 else ""
-
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Generate a formatted prompt from a repository directory")
+    parser.add_argument("repo_dir", help="Path to the repository directory")
+    parser.add_argument("--system-message", default="", help="Optional system message")
+    parser.add_argument("--user-instructions", default="", help="Optional user instructions")
+    parser.add_argument("--ignored-dirs", nargs="+", default=[], help="Additional directories to ignore")
+    parser.add_argument("--ignored-extensions", nargs="+", default=[], help="Additional file extensions to ignore")
+    parser.add_argument("--max-file-size", type=float, default=RepoForge.DEFAULT_MAX_FILE_SIZE_BYTES, 
+                        help="Maximum file size for summarizing")
+    parser.add_argument("--max-chars", type=int, default=None, 
+                        help="Maximum characters to include in the summary (None means no limit)")
+    parser.add_argument("--ignore-max-chars-for", nargs="+", default=[], 
+                        help="List of file patterns or directory paths that should ignore the max_chars limit")
+    parser.add_argument("--model", default="o1-pro", help="The model to use for token counting")
+    
+    args = parser.parse_args()
+    
     try:
-        prompt = generate_prompt(repo_dir, system_message, user_instructions)
+        repo_forge = RepoForge(
+            ignored_dirs=set(args.ignored_dirs),
+            ignored_extensions=set(args.ignored_extensions),
+            max_file_size_bytes=args.max_file_size,
+            max_chars=args.max_chars,
+            ignore_max_chars_for=args.ignore_max_chars_for,
+            model=args.model
+        )
+        
+        prompt = repo_forge.generate_prompt(
+            args.repo_dir,
+            system_message=args.system_message,
+            user_instructions=args.user_instructions
+        )
+        
         print(prompt)
     except Exception as e:
         print(f"Error: {e}")
         sys.exit(1)
+
+
