@@ -20,7 +20,8 @@ class RepoForge:
         max_file_size_bytes: float = DEFAULT_MAX_FILE_SIZE_BYTES,
         max_chars: Optional[int] = 1_000_000_000,
         ignore_max_chars_for: Optional[List[str]] = None,
-        model: str = "o1-pro"
+        model: str = "o1-pro",
+        token_limit: Optional[int] = None
     ):
         """
         Initialize the RepoForge instance.
@@ -32,6 +33,7 @@ class RepoForge:
             max_chars: Maximum characters to include in the summary (None means no limit)
             ignore_max_chars_for: List of file patterns or directory paths that should ignore the max_chars limit
             model: The model to use for token counting
+            token_limit: Maximum number of tokens for the prompt (defaults to DEFAULT_TOKEN_LIMIT if None)
         """
         self.ignored_dirs = self.DEFAULT_IGNORED_DIRS.copy()
         if ignored_dirs:
@@ -45,6 +47,7 @@ class RepoForge:
         self.max_chars = max_chars
         self.ignore_max_chars_for = ignore_max_chars_for or []
         self.model = model
+        self.token_limit = token_limit if token_limit is not None else self.DEFAULT_TOKEN_LIMIT
 
     def summarize_text_file(self, filepath: str, max_chars: Optional[int] = None) -> str:
         """
@@ -161,7 +164,7 @@ class RepoForge:
                 rel_dir = ''  # top-level
 
             file_summaries = []
-            for filename in files:
+            for filename in sorted(files):  # Sort files for consistent output
                 _, ext = os.path.splitext(filename)
                 if ext.lower() in self.ignored_extensions or filename.startswith('.'):
                     continue
@@ -286,10 +289,11 @@ class RepoForge:
             user_instructions=user_instructions
         )
         token_count = self.count_tokens(formatted_prompt)
+        
         # Recursively reduce max_chars if token count exceeds the limit
-        if token_count > self.DEFAULT_TOKEN_LIMIT and self.max_chars is not None:
+        if token_count > self.token_limit and self.max_chars is not None:
             # Calculate reduction factor based on how much we need to reduce
-            reduction_factor = self.DEFAULT_TOKEN_LIMIT / token_count
+            reduction_factor = self.token_limit / token_count
             # Apply with a safety margin
             new_max_chars = int(self.max_chars * reduction_factor * 0.9)
             print(f"Token count too high ({token_count}). Reducing max_chars from {self.max_chars} to {new_max_chars}.")
@@ -301,7 +305,8 @@ class RepoForge:
                 max_file_size_bytes=self.max_file_size_bytes,
                 max_chars=new_max_chars,
                 ignore_max_chars_for=self.ignore_max_chars_for,
-                model=self.model
+                model=self.model,
+                token_limit=self.token_limit
             )
             
             return new_instance.generate_prompt(
@@ -312,6 +317,48 @@ class RepoForge:
             
         print(f"Final token count: {token_count}")
         return formatted_prompt
+
+    def generate_prompt_with_metadata(
+        self,
+        repo_dir: str,
+        system_message: str = "",
+        user_instructions: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Generate a formatted prompt from a repository directory and return metadata.
+        
+        Parameters:
+            repo_dir: Path to the repository directory
+            system_message: Optional system message
+            user_instructions: Optional user instructions
+        
+        Returns:
+            Dictionary containing the formatted prompt and metadata:
+            {
+                'prompt': str,
+                'token_count': int,
+                'char_count': int,
+                'file_count': int,
+                'directory_count': int
+            }
+        
+        Raises:
+            ValueError: If the provided directory does not exist
+        """
+        prompt = self.generate_prompt(repo_dir, system_message, user_instructions)
+        
+        # Count files and directories in the repo summary
+        repo_summary = self.create_repo_summary(repo_dir)
+        directory_count = len(repo_summary)
+        file_count = sum(len(entry['files']) for entry in repo_summary)
+        
+        return {
+            'prompt': prompt,
+            'token_count': self.count_tokens(prompt),
+            'char_count': len(prompt),
+            'file_count': file_count,
+            'directory_count': directory_count
+        }
 
 
 # Optional: CLI entrypoint for manual testing
@@ -332,6 +379,10 @@ if __name__ == "__main__":
     parser.add_argument("--ignore-max-chars-for", nargs="+", default=[], 
                         help="List of file patterns or directory paths that should ignore the max_chars limit")
     parser.add_argument("--model", default="o1-pro", help="The model to use for token counting")
+    parser.add_argument("--token-limit", type=int, default=None, 
+                        help="Maximum number of tokens for the prompt (defaults to DEFAULT_TOKEN_LIMIT if None)")
+    parser.add_argument("--with-metadata", action="store_true", 
+                        help="Include metadata about the generated prompt")
     
     args = parser.parse_args()
     
@@ -342,18 +393,31 @@ if __name__ == "__main__":
             max_file_size_bytes=args.max_file_size,
             max_chars=args.max_chars,
             ignore_max_chars_for=args.ignore_max_chars_for,
-            model=args.model
+            model=args.model,
+            token_limit=args.token_limit
         )
         
-        prompt = repo_forge.generate_prompt(
-            args.repo_dir,
-            system_message=args.system_message,
-            user_instructions=args.user_instructions
-        )
-        
-        print(prompt)
+        if args.with_metadata:
+            result = repo_forge.generate_prompt_with_metadata(
+                args.repo_dir,
+                system_message=args.system_message,
+                user_instructions=args.user_instructions
+            )
+            # Print metadata first
+            print(f"--- METADATA ---")
+            print(f"Token count: {result['token_count']}")
+            print(f"Character count: {result['char_count']}")
+            print(f"File count: {result['file_count']}")
+            print(f"Directory count: {result['directory_count']}")
+            print(f"--- PROMPT ---")
+            print(result['prompt'])
+        else:
+            prompt = repo_forge.generate_prompt(
+                args.repo_dir,
+                system_message=args.system_message,
+                user_instructions=args.user_instructions
+            )
+            print(prompt)
     except Exception as e:
         print(f"Error: {e}")
         sys.exit(1)
-
-
